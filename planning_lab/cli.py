@@ -51,7 +51,7 @@ def parser() -> argparse.ArgumentParser:
 def save_artifact(payload: dict) -> Path:
     artifact_dir = ROOT / "artifacts"
     artifact_dir.mkdir(exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     path = artifact_dir / f"run-{stamp}.json"
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
