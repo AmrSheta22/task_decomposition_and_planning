@@ -14,7 +14,7 @@ from planning_lab.algorithms import (
 )
 from planning_lab.models import EnvironmentFeedback, Plan
 from planning_lab.algorithms.decomposition import GeneratedPlan
-from planning_lab.algorithms.dynamic_decomposition import DynamicDecision
+from planning_lab.algorithms.dynamic_decomposition import DynamicDecision, dynamic_decomposition
 from planning_lab.algorithms.lats import LATSActionBatch, ValueEstimate
 from planning_lab.algorithms.tree_of_thoughts import ThoughtCandidates, ThoughtEvaluation
 from langchain_mistralai import ChatMistralAI
@@ -96,6 +96,11 @@ def test_random_environment_tends_toward_good_evaluations():
     feedback = [environment.evaluate("Any candidate") for _ in range(1_000)]
     assert sum(item.score for item in feedback) / len(feedback) > 0.65
     assert sum(item.success for item in feedback) / len(feedback) > 0.65
+
+
+def test_dynamic_decomposition_rejects_nonpositive_max_steps():
+    with pytest.raises(ValueError, match="max_steps must be positive"):
+        dynamic_decomposition("Any goal", llm=None, max_steps=0)
 
 
 class ReflexionLLM:
