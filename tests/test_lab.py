@@ -98,6 +98,52 @@ def test_random_environment_tends_toward_good_evaluations():
     assert sum(item.success for item in feedback) / len(feedback) > 0.65
 
 
+class FlakyLLM:
+    def __init__(self, fail_on):
+        self.fail_on = fail_on
+        self.attempts = 0
+
+    def invoke(self, messages, **kwargs):
+        current = next(
+            line.strip() for line in messages[-1][1].splitlines()
+            if line.strip().startswith("Current task:")
+        ).replace("Current task:", "").strip()
+        if current == self.fail_on:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("transient API failure")
+        return SimpleNamespace(content=f"Completed {current} with enough concrete detail for the downstream synthesis task.")
+
+
+def two_branch_plan() -> Plan:
+    return Plan.model_validate({
+        "goal": "Create a concise combined report",
+        "tasks": [
+            {"id": "research", "instruction": "Collect useful evidence", "depends_on": []},
+            {"id": "risks", "instruction": "Identify the risks", "depends_on": []},
+            {"id": "brief", "instruction": "Synthesize the report", "depends_on": ["research", "risks"]},
+        ],
+    })
+
+
+def test_execute_plan_retries_failed_node():
+    llm = FlakyLLM(fail_on="Collect useful evidence")
+    outputs = execute_plan(two_branch_plan(), llm, retries=2)
+    assert set(outputs) == {"research", "risks", "brief"}
+    assert llm.attempts == 2
+
+
+def test_execute_plan_raises_after_retries_exhausted():
+    llm = FlakyLLM(fail_on="Collect useful evidence")
+    with pytest.raises(RuntimeError, match="Task execution failed"):
+        execute_plan(two_branch_plan(), llm, retries=0)
+
+
+def test_execute_plan_rejects_negative_retries():
+    with pytest.raises(ValueError, match="retries must be non-negative"):
+        execute_plan(two_branch_plan(), llm=None, retries=-1)
+
+
 class ReflexionLLM:
     def __init__(self):
         self.acting_calls = 0

@@ -47,39 +47,67 @@ Preserve the supplied goal exactly in the plan's goal field."""),
     return Plan.model_validate(payload)
 
 
-def execute_plan(plan: Plan, llm: BaseChatModel, max_workers: int = 4) -> dict[str, str]:
+def _run_node(plan: Plan, task_id: str, outputs: dict[str, str], llm: BaseChatModel) -> str:
+    task = plan.task(task_id)
+    context = "\n\n".join(
+        f"OUTPUT FROM {dependency}:\n{outputs[dependency]}"
+        for dependency in task.depends_on
+    ) or "No prerequisite outputs."
+    prompt = f"""Overall goal: {plan.goal}
+        Current task: {task.instruction}
+        Prerequisite outputs:
+        {context}
+        Complete only the current task. Be concrete and concise. Do not invent sources."""
+    response = llm.invoke([
+        ("system", "You execute one node in a validated task DAG."),
+        ("human", prompt),
+    ], temperature=0.2)
+    content = response.content
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("The chat model returned an empty or unsupported response")
+    return content.strip()
+
+
+def execute_plan(
+    plan: Plan,
+    llm: BaseChatModel,
+    max_workers: int = 4,
+    retries: int = 1,
+) -> dict[str, str]:
+    if retries < 0:
+        raise ValueError("retries must be non-negative")
     outputs: dict[str, str] = {}
     for batch in plan.execution_batches():
-        prompts: dict[str, str] = {}
-        for task_id in batch:
-            task = plan.task(task_id)
-            context = "\n\n".join(
-                f"OUTPUT FROM {dependency}:\n{outputs[dependency]}"
-                for dependency in task.depends_on
-            ) or "No prerequisite outputs."
-            prompts[task_id] = f"""Overall goal: {plan.goal}
-                Current task: {task.instruction}
-                Prerequisite outputs:
-                {context}
-                Complete only the current task. Be concrete and concise. Do not invent sources."""
-        # unnecessary but nice to have
-        with ThreadPoolExecutor(max_workers=min(max_workers, len(batch))) as pool:
-            futures = {
-                pool.submit(
-                    llm.invoke,
-                    [
-                        ("system", "You execute one node in a validated task DAG."),
-                        ("human", prompt),
-                    ],
-                    temperature=0.2,
-                ): task_id
-                for task_id, prompt in prompts.items()
-            }
-            for future in as_completed(futures):
-                content = future.result().content
-                if not isinstance(content, str) or not content.strip():
-                    raise RuntimeError("The chat model returned an empty or unsupported response")
-                outputs[futures[future]] = content.strip()
+        pending = set(batch)
+        attempt = 0
+        while pending and attempt <= retries:
+            remaining = list(pending)
+            failures: dict[str, Exception] = {}
+            if max_workers > 1 and len(remaining) > 1:
+                with ThreadPoolExecutor(max_workers=min(max_workers, len(remaining))) as pool:
+                    futures = {
+                        pool.submit(_run_node, plan, task_id, outputs, llm): task_id
+                        for task_id in remaining
+                    }
+                    for future in as_completed(futures):
+                        task_id = futures[future]
+                        try:
+                            outputs[task_id] = future.result()
+                        except Exception as exc:
+                            failures[task_id] = exc
+            else:
+                for task_id in remaining:
+                    try:
+                        outputs[task_id] = _run_node(plan, task_id, outputs, llm)
+                    except Exception as exc:
+                        failures[task_id] = exc
+            pending = set(failures)
+            attempt += 1
+        if pending:
+            detail = "; ".join(
+                f"{task_id}: {failures[task_id]}" for task_id in sorted(pending)
+            )
+            raise RuntimeError(f"Task execution failed after {retries} retries: {detail}")
     return outputs
 
 
