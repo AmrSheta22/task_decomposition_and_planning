@@ -16,6 +16,7 @@ from planning_lab.models import EnvironmentFeedback, Plan
 from planning_lab.algorithms.decomposition import GeneratedPlan
 from planning_lab.algorithms.dynamic_decomposition import DynamicDecision
 from planning_lab.algorithms.lats import LATSActionBatch, ValueEstimate
+from planning_lab.algorithms.self_refine import CritiqueResult, reflect_and_refine
 from planning_lab.algorithms.tree_of_thoughts import ThoughtCandidates, ThoughtEvaluation
 from langchain_mistralai import ChatMistralAI
 
@@ -96,6 +97,52 @@ def test_random_environment_tends_toward_good_evaluations():
     feedback = [environment.evaluate("Any candidate") for _ in range(1_000)]
     assert sum(item.score for item in feedback) / len(feedback) > 0.65
     assert sum(item.success for item in feedback) / len(feedback) > 0.65
+
+
+class CritiqueLLM:
+    def __init__(self, verdict, issues=()):
+        self.verdict = verdict
+        self.issues = list(issues)
+        self.revision_calls = 0
+
+    class Structured:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def invoke(self, messages, **kwargs):
+            return CritiqueResult(verdict=self.owner.verdict, issues=self.owner.issues)
+
+    def with_structured_output(self, schema, *, method):
+        assert method == "json_schema"
+        return self.Structured(self)
+
+    def invoke(self, messages, **kwargs):
+        self.revision_calls += 1
+        return SimpleNamespace(content="Revised deliverable with concrete structure and verification steps.")
+
+
+def test_reflect_and_refine_skips_revision_on_pass():
+    deliverable = good_deliverable()
+    llm = CritiqueLLM("PASS")
+    result = reflect_and_refine("Create a security checklist", deliverable, llm)
+    assert result.revised == deliverable
+    assert llm.revision_calls == 0
+
+
+def test_reflect_and_refine_revises_on_structured_critique():
+    llm = CritiqueLLM("REVISE", ["Missing verification steps"])
+    result = reflect_and_refine("Create a security checklist", good_deliverable(), llm)
+    assert result.revised != good_deliverable()
+    assert llm.revision_calls == 1
+    assert "Missing verification steps" in result.critique
+
+
+def test_reflect_and_refine_revises_when_grounded_checks_fail():
+    llm = CritiqueLLM("PASS")
+    result = reflect_and_refine("Create a security checklist", "Too short", llm)
+    assert result.revised != "Too short"
+    assert llm.revision_calls == 1
+    assert result.grounded_issues
 
 
 class ReflexionLLM:
