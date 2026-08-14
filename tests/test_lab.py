@@ -17,7 +17,7 @@ from planning_lab.algorithms.decomposition import GeneratedPlan
 from planning_lab.algorithms.dynamic_decomposition import DynamicDecision
 from planning_lab.algorithms.lats import LATSActionBatch, ValueEstimate
 from planning_lab.algorithms.tree_of_thoughts import ThoughtCandidates, ThoughtEvaluation
-from langchain_mistralai import ChatMistralAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class RecordingLLM:
@@ -188,7 +188,7 @@ def test_lats_uses_external_feedback_reflection_and_backpropagation():
     "schema",
     [GeneratedPlan, DynamicDecision, ThoughtCandidates, ThoughtEvaluation, LATSActionBatch, ValueEstimate],
 )
-def test_structured_schemas_bind_with_langchain_mistral(schema):
-    chat = ChatMistralAI(api_key="test-key", model="test-model")
+def test_structured_schemas_bind_with_langchain_gemini(schema):
+    chat = ChatGoogleGenerativeAI(google_api_key="test-key", model="test-model")
     runnable = chat.with_structured_output(schema, method="json_schema")
     assert runnable is not None

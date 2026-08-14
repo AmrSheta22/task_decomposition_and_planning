@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_mistralai import ChatMistralAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from .algorithms import (
     decompose_goal,
@@ -36,7 +36,7 @@ def parser() -> argparse.ArgumentParser:
         choices=["dag", "dynamic", "ps", "tot", "reflexion", "lats"],
         default="dag",
     )
-    cli.add_argument("--model", default="mistral-small-latest")
+    cli.add_argument("--model", default="gemini-flash-lite-latest")
     cli.add_argument("--depth", type=int, default=2, choices=range(1, 4))
     cli.add_argument("--beam-width", type=int, default=2, choices=range(1, 4))
     cli.add_argument("--max-trials", type=int, default=3, choices=range(1, 6))
@@ -64,13 +64,13 @@ def main() -> None:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parser().parse_args()
     load_dotenv(ROOT / ".env")
-    api_key = os.getenv("MISTRAL_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("MISTRAL_API_KEY is missing; add it to .env")
-    llm = ChatMistralAI(
-        api_key=api_key,
+        raise RuntimeError("GOOGLE_API_KEY is missing; add it to .env")
+    llm = ChatGoogleGenerativeAI(
+        google_api_key=api_key,
         model=args.model,
-        random_seed=42,
+        temperature=0.1,
         max_retries=2,
     )
     payload: dict = {"mode": args.mode, "model": args.model, "goal": args.goal}
