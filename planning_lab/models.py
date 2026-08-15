@@ -6,12 +6,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class Task(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     id: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]*$")
     instruction: str = Field(min_length=5)
     depends_on: list[str] = Field(default_factory=list)
-
-
+    tool_name: str | None = Field(
+        default=None,
+        description="Name of a real tool to call for this task, or None if this task needs LLM reasoning instead.",
+    )
+    tool_args: dict = Field(
+        default_factory=dict,
+        description="Arguments to pass to tool_name, if set.",
+    )
 class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -1,7 +1,9 @@
+import asyncio
 import random
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.tools import BaseTool
 
 from planning_lab.algorithms import (
     Environment,
@@ -17,7 +19,7 @@ from planning_lab.algorithms.decomposition import GeneratedPlan
 from planning_lab.algorithms.dynamic_decomposition import DynamicDecision
 from planning_lab.algorithms.lats import LATSActionBatch, ValueEstimate
 from planning_lab.algorithms.tree_of_thoughts import ThoughtCandidates, ThoughtEvaluation
-from langchain_mistralai import ChatMistralAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class RecordingLLM:
@@ -68,9 +70,49 @@ def test_executor_passes_dependency_outputs():
         ],
     })
     llm = RecordingLLM()
-    outputs = execute_plan(plan, llm)
+    outputs = asyncio.run(execute_plan(plan, llm))
     assert "Completed Current task: Collect useful evidence" in llm.prompts[1]
     assert final_output(plan, outputs) == outputs["b"]
+
+
+class AsyncOnlyTool(BaseTool):
+    """Mimics a real MCP tool: only ainvoke works, .invoke() must fail.
+    This is exactly what langchain_mcp_adapters' StructuredTool does when
+    it wraps a tool from the real MCP server — calling .invoke() on it
+    raises NotImplementedError. This test exists to catch a regression
+    back to the old sync `tool.invoke(...)` call in execute_plan(), which
+    is what broke the real agent run against the live MCP server
+    (NotImplementedError: StructuredTool does not support sync invocation).
+    """
+    name: str = "get_inventory"
+    description: str = "Fake stand-in for the real get_inventory MCP tool."
+
+    def _run(self, *args, **kwargs):
+        raise NotImplementedError("StructuredTool does not support sync invocation.")
+
+    async def _arun(self, *args, **kwargs):
+        return {"item": "Roma Tomatoes", "current_quantity": 4.5}
+
+
+def test_execute_plan_calls_async_only_tools_without_erroring():
+    plan = Plan.model_validate({
+        "goal": "Check stock and report it back",
+        "tasks": [
+            {
+                "id": "check_stock",
+                "instruction": "Check current Roma Tomatoes stock at branch 2",
+                "depends_on": [],
+                "tool_name": "get_inventory",
+                "tool_args": {"branch_id": 2, "item_name": "Roma Tomatoes"},
+            },
+        ],
+    })
+    tool = AsyncOnlyTool()
+    # llm=None is safe here: this plan has no reasoning-only tasks, so
+    # execute_plan never touches the llm argument — only the tool path runs.
+    outputs = asyncio.run(execute_plan(plan, llm=None, tools={"get_inventory": tool}))
+    assert "Roma Tomatoes" in outputs["check_stock"]
+    assert final_output(plan, outputs) == outputs["check_stock"]
 
 
 def test_grounded_checks_are_deterministic():
@@ -188,7 +230,7 @@ def test_lats_uses_external_feedback_reflection_and_backpropagation():
     "schema",
     [GeneratedPlan, DynamicDecision, ThoughtCandidates, ThoughtEvaluation, LATSActionBatch, ValueEstimate],
 )
-def test_structured_schemas_bind_with_langchain_mistral(schema):
-    chat = ChatMistralAI(api_key="test-key", model="test-model")
+def test_structured_schemas_bind_with_langchain_gemini(schema):
+    chat = ChatGoogleGenerativeAI(google_api_key="test-key", model="test-model")
     runnable = chat.with_structured_output(schema, method="json_schema")
     assert runnable is not None
