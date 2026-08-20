@@ -106,18 +106,48 @@ def lats(
         proposed = llm.with_structured_output(
             LATSActionBatch,
             method="json_schema",
-        ).invoke([
-            ("system", "You are the action generator in LATS."),
-            ("human", f"""Task: {task}
+        ).invoke(
+            [
+                (
+                    "system",
+                    """You are the action generator
+                    in a LATS search for a Talenta
+                    recruitment task.
+
+                    Generate concrete candidate
+                    recruitment actions or complete
+                    candidate solutions.
+
+                    Use only available Talenta
+                    capabilities and policies.
+
+                    Do not invent tool results.
+                    Learn from previous failed-branch
+                    reflections.
+                    """,
+                ),
+                (
+                    "human",
+                    f"""Task:
+{task}
+
 Current trajectory/state:
 {leaf.state}
-Reflections learned from failed branches:
+
+Reflections from failed branches:
 {lesson_text}
 
-Propose exactly {n_actions} distinct complete candidate solution(s). Each state must
-contain the fully written solution, not a placeholder or description of a solution.""",
-            ),
-        ], temperature=0.5)
+Propose exactly {n_actions}
+distinct candidate next states.
+
+Each state must contain enough concrete
+information to be evaluated by the
+external recruitment environment.
+""",
+                ),
+            ],
+            temperature=0.5,
+            )
         for item in proposed.actions[:n_actions]:
             child = LATSNode(state=item.state.strip(), action=item.action, parent=leaf)
             leaf.children.append(child)
@@ -139,14 +169,41 @@ Estimate the candidate's future usefulness."""),
             child.model_score = value_judgment.score
             combined_value = 0.75 * child.environment_score + 0.25 * child.model_score
             if not feedback.success:
-                response = llm.invoke([
-                    ("system", "Create a branch-level LATS reflection grounded in environment feedback."),
-                    ("human", f"""Task: {task}
-Action: {child.action}
-Resulting state: {child.state}
-External feedback: {feedback.details}
-Explain briefly why this branch failed and how a later expansion should change."""),
-                ], temperature=0.2)
+                response = llm.invoke(
+                    [
+                        (
+                            "system",
+                            """Create a concise
+                            LATS reflection.
+
+                            Explain what failed based
+                            only on the external
+                            feedback and identify
+                            how future branches
+                            should change.
+                            """,
+                        ),
+                        (
+                            "human",
+                            f"""Task:
+{task}
+
+Action:
+{child.action}
+
+Candidate state:
+{child.state}
+
+External feedback:
+{feedback.details}
+
+Explain why this branch failed and
+what the next search should do differently.
+""",
+                        ),
+                    ],
+                    temperature=0.2,
+                )
                 reflection = response.content
                 if not isinstance(reflection, str) or not reflection.strip():
                     raise RuntimeError("The chat model returned an empty or unsupported response")

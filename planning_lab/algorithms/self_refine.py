@@ -34,7 +34,7 @@ def reflect_and_refine(goal: str, draft: str, llm: BaseChatModel) -> ReflectionR
     grounded_report = "\n".join(f"- {issue}" for issue in grounded) or "- Deterministic checks passed."
     # This can be done better, how should it be done?
     critique_response = llm.invoke([
-        ("system", "You are a separate critic. Judge against the rubric; do not rewrite the draft."),
+        ("system", """You are a separate critic for the Talenta Recruitment system. Judge the hiring recommendation against the provided evidence and rubric. Do not rewrite the draft. Do not invent candidates, candidate scores, interview evaluations, application history, job requirements, recruitment policies, tools, or external sources.""",),
         ("human", f"""Goal: {goal}
 Rubric: correctness, completeness, internal consistency, and instruction adherence.
 External deterministic checks:
@@ -43,7 +43,7 @@ External deterministic checks:
 Draft:
 {draft}
 
-List concrete issues. If there are none, respond exactly PASS."""),
+List concrete issues in the draft. Focus especially on unsupported hiring decisions or missing evidence. If there are no issues, respond exactly PASS."""),
     ], temperature=0.2)
     critique = critique_response.content
     if not isinstance(critique, str) or not critique.strip():
@@ -53,8 +53,8 @@ List concrete issues. If there are none, respond exactly PASS."""),
         revised = draft
     else:
         response = llm.invoke([
-            ("system", "Revise a deliverable using both external checks and an independent critique."),
-            ("human", f"Goal: {goal}\n\nDraft:\n{draft}\n\nGrounded checks:\n{grounded_report}\n\nCritique:\n{critique}\n\nReturn only the improved deliverable."),
+            ("system", """Revise a Talenta Recruitment hiring recommendation using the external checks and independent critique. Use only the evidence provided in the draft and context. Do not invent candidate information, scores, interview results, policies, tools, or external sources. If required evidence is missing, explicitly state that the decision cannot be finalized instead of making up information. Return only the improved recommendation.""",),
+            ("human", f"""Goal: {goal}\n\nDraft:\n{draft}\n\nGrounded checks:\n{grounded_report}\n\nCritique:\n{critique}\n\nReturn only the improved deliverable."""),
         ], temperature=0.2)
         revised = response.content
         if not isinstance(revised, str) or not revised.strip():
