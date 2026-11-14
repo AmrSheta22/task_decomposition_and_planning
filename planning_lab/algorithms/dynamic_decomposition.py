@@ -10,6 +10,8 @@ class DynamicDecision(BaseModel):
 
 
 def dynamic_decomposition(goal: str, llm: BaseChatModel, max_steps: int = 4) -> list[tuple[str, str]]:
+    if max_steps < 1:
+        raise ValueError("max_steps must be positive")
     history: list[tuple[str, str]] = []
     for step in range(max_steps):
         observation = "\n".join(f"{task}: {result}" for task, result in history) or "None"
