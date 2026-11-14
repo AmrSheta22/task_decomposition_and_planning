@@ -59,6 +59,17 @@ def test_cycle_is_rejected():
         })
 
 
+def test_unknown_task_id_raises_clear_error():
+    plan = Plan.model_validate({
+        "goal": "Prepare a useful launch brief",
+        "tasks": [
+            {"id": "research", "instruction": "Research the audience", "depends_on": []},
+        ],
+    })
+    with pytest.raises(ValueError, match="Unknown task id"):
+        plan.task("missing")
+
+
 def test_executor_passes_dependency_outputs():
     plan = Plan.model_validate({
         "goal": "Create a concise combined report",
