@@ -1,7 +1,19 @@
 import re
 from dataclasses import dataclass
-
 from langchain_core.language_models.chat_models import BaseChatModel
+
+
+def _normalize_content(content):
+    """Gemini occasionally returns response.content as a list of blocks
+    (e.g. [{"type": "text", "text": "..."}]) instead of a plain string.
+    Flatten it before validating — same fix applied in decomposition.py
+    and llm_counter.py's CountingLLM."""
+    if isinstance(content, list):
+        return "".join(
+            block if isinstance(block, str) else block.get("text", "")
+            for block in content
+        )
+    return content
 
 
 def deterministic_checks(goal: str, draft: str) -> list[str]:
@@ -39,13 +51,11 @@ def reflect_and_refine(goal: str, draft: str, llm: BaseChatModel) -> ReflectionR
 Rubric: correctness, completeness, internal consistency, and instruction adherence.
 External deterministic checks:
 {grounded_report}
-
 Draft:
 {draft}
-
 List concrete issues. If there are none, respond exactly PASS."""),
     ], temperature=0.2)
-    critique = critique_response.content
+    critique = _normalize_content(critique_response.content)
     if not isinstance(critique, str) or not critique.strip():
         raise RuntimeError("The chat model returned an empty or unsupported response")
     critique = critique.strip()
@@ -56,7 +66,7 @@ List concrete issues. If there are none, respond exactly PASS."""),
             ("system", "Revise a deliverable using both external checks and an independent critique."),
             ("human", f"Goal: {goal}\n\nDraft:\n{draft}\n\nGrounded checks:\n{grounded_report}\n\nCritique:\n{critique}\n\nReturn only the improved deliverable."),
         ], temperature=0.2)
-        revised = response.content
+        revised = _normalize_content(response.content)
         if not isinstance(revised, str) or not revised.strip():
             raise RuntimeError("The chat model returned an empty or unsupported response")
         revised = revised.strip()

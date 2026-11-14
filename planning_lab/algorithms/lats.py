@@ -105,7 +105,16 @@ def lats(
         lesson_text = "\n".join(f"- {item}" for item in lessons[-4:]) or "- None yet."
         proposed = llm.with_structured_output(
             LATSActionBatch,
-            method="json_schema",
+            # NOTE: was method="json_schema". LATSActionBatch is a list of
+            # NESTED Pydantic objects (list[LATSAction]), each with its own
+            # field constraints (min_length=2). Unlike tree_of_thoughts.py's
+            # flat schemas (list[str], or one float + one str), this nested
+            # shape hit Groq's json_schema mode's edge cases (a newer,
+            # "subset of models" feature per langchain-groq's own docs) and
+            # failed instantly with 0 recorded calls/tokens before any real
+            # generation happened. function_calling is Groq's default and
+            # has no such model-subset restriction.
+            method="function_calling",
         ).invoke([
             ("system", "You are the action generator in LATS."),
             ("human", f"""Task: {task}
@@ -126,7 +135,7 @@ contain the fully written solution, not a placeholder or description of a soluti
             child.environment_score = feedback.score
             value_judgment = llm.with_structured_output(
                 ValueEstimate,
-                method="json_schema",
+                method="function_calling",  # see note above
             ).invoke([
                 ("system", "You are the LATS value function."),
                 ("human", f"""Task: {task}
