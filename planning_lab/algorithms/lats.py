@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -162,10 +163,10 @@ Explain briefly why this branch failed and how a later expansion should change."
 
 def flatten_lats_tree(root: LATSNode) -> list[dict]:
     records: list[dict] = []
-    queue: list[tuple[LATSNode, str | None]] = [(root, None)]
+    queue: deque[tuple[LATSNode, str | None]] = deque([(root, None)])
     next_id = 0
     while queue:
-        node, parent_id = queue.pop(0)
+        node, parent_id = queue.popleft()
         node_id = f"n{next_id}"
         next_id += 1
         records.append(

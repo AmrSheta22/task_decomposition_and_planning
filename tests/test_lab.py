@@ -14,7 +14,7 @@ from planning_lab.algorithms import (
 )
 from planning_lab.models import EnvironmentFeedback, Plan
 from planning_lab.algorithms.decomposition import GeneratedPlan
-from planning_lab.algorithms.dynamic_decomposition import DynamicDecision
+from planning_lab.algorithms.dynamic_decomposition import DynamicDecision, dynamic_decomposition
 from planning_lab.algorithms.lats import LATSActionBatch, ValueEstimate
 from planning_lab.algorithms.self_refine import CritiqueResult, reflect_and_refine
 from planning_lab.algorithms.tree_of_thoughts import ThoughtCandidates, ThoughtEvaluation
@@ -58,6 +58,17 @@ def test_cycle_is_rejected():
                 {"id": "b", "instruction": "Perform task beta", "depends_on": ["a"]},
             ],
         })
+
+
+def test_unknown_task_id_raises_clear_error():
+    plan = Plan.model_validate({
+        "goal": "Prepare a useful launch brief",
+        "tasks": [
+            {"id": "research", "instruction": "Research the audience", "depends_on": []},
+        ],
+    })
+    with pytest.raises(ValueError, match="Unknown task id"):
+        plan.task("missing")
 
 
 def test_executor_passes_dependency_outputs():
@@ -143,6 +154,9 @@ def test_reflect_and_refine_revises_when_grounded_checks_fail():
     assert result.revised != "Too short"
     assert llm.revision_calls == 1
     assert result.grounded_issues
+def test_dynamic_decomposition_rejects_nonpositive_max_steps():
+    with pytest.raises(ValueError, match="max_steps must be positive"):
+        dynamic_decomposition("Any goal", llm=None, max_steps=0)
 
 
 class ReflexionLLM:

@@ -56,7 +56,10 @@ class Plan(BaseModel):
         return [sorted(generation) for generation in nx.topological_generations(self.graph)]
 
     def task(self, task_id: str) -> Task:
-        return next(task for task in self.tasks if task.id == task_id)
+        for task in self.tasks:
+            if task.id == task_id:
+                return task
+        raise ValueError(f"Unknown task id: {task_id}")
 
     def terminal_tasks(self) -> list[str]:
         return [node for node, degree in self.graph.out_degree if degree == 0]
