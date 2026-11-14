@@ -1,7 +1,9 @@
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def deterministic_checks(goal: str, draft: str) -> list[str]:
@@ -29,11 +31,20 @@ class ReflectionResult:
     grounded_issues: list[str]
 
 
+class CritiqueResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["PASS", "REVISE"]
+    issues: list[str] = Field(default_factory=list)
+
+
 def reflect_and_refine(goal: str, draft: str, llm: BaseChatModel) -> ReflectionResult:
     grounded = deterministic_checks(goal, draft)
     grounded_report = "\n".join(f"- {issue}" for issue in grounded) or "- Deterministic checks passed."
-    # This can be done better, how should it be done?
-    critique_response = llm.invoke([
+    critique = llm.with_structured_output(
+        CritiqueResult,
+        method="json_schema",
+    ).invoke([
         ("system", "You are a separate critic. Judge against the rubric; do not rewrite the draft."),
         ("human", f"""Goal: {goal}
 Rubric: correctness, completeness, internal consistency, and instruction adherence.
@@ -43,21 +54,19 @@ External deterministic checks:
 Draft:
 {draft}
 
-List concrete issues. If there are none, respond exactly PASS."""),
+Return verdict PASS only if the draft satisfies the rubric and the deterministic checks.
+Otherwise set verdict to REVISE and list the concrete issues."""),
     ], temperature=0.2)
-    critique = critique_response.content
-    if not isinstance(critique, str) or not critique.strip():
-        raise RuntimeError("The chat model returned an empty or unsupported response")
-    critique = critique.strip()
-    if critique.strip().upper() == "PASS" and not grounded:
+    critique_text = "\n".join(f"- {issue}" for issue in critique.issues)
+    if critique.verdict == "PASS" and not grounded:
         revised = draft
     else:
         response = llm.invoke([
             ("system", "Revise a deliverable using both external checks and an independent critique."),
-            ("human", f"Goal: {goal}\n\nDraft:\n{draft}\n\nGrounded checks:\n{grounded_report}\n\nCritique:\n{critique}\n\nReturn only the improved deliverable."),
+            ("human", f"Goal: {goal}\n\nDraft:\n{draft}\n\nGrounded checks:\n{grounded_report}\n\nCritique:\n{critique_text or critique.verdict}\n\nReturn only the improved deliverable."),
         ], temperature=0.2)
         revised = response.content
         if not isinstance(revised, str) or not revised.strip():
             raise RuntimeError("The chat model returned an empty or unsupported response")
         revised = revised.strip()
-    return ReflectionResult(draft, critique, revised, grounded)
+    return ReflectionResult(draft, critique_text or critique.verdict, revised, grounded)
